@@ -1,0 +1,119 @@
+- hosts: test
+  remote_user: root
+  vars:
+   commandDirectory: ""
+  tasks:
+  - name: Update and upgrade apt packages
+    become: yes
+    apt:
+     upgrade: yes
+     update_cache: yes
+     cache_valid_time: 86400     
+
+  - name: Download nodeJS script
+    get_url: url=https://deb.nodesource.com/setup_10.x dest=/opt mode=755
+
+  - name: Setup Node.js
+    command: /opt/setup_10.x
+
+  - name: Install Node.js
+    apt: name=nodejs state=present
+
+  - name: Get yarn package
+    apt_key:
+     url: 'https://dl.yarnpkg.com/debian/pubkey.gpg'
+     state: present
+
+  - name: Add Yarn to the source lists
+    become: true
+    lineinfile:
+      path: '/etc/apt/sources.list.d/yarn.list'
+      regexp: 'deb https://dl.yarnpkg.com/debian/ stable main'
+      line: 'deb https://dl.yarnpkg.com/debian/ stable main'
+      create: yes
+
+  - name: Install Yarn package manager
+    become: true
+    apt:
+      name: yarn
+      state: latest
+      update_cache: yes
+
+  - name: Install global packages
+    shell: yarn global add knex-migrator grunt-cli ember-cli bower
+
+  - name: Install Screen
+    apt:
+     name: screen
+     state: latest
+
+  - name: Kill all running screens
+    shell: pkill screen
+    ignore_errors: yes
+
+  - name: Wipe all dead screens
+    shell: screen -wipe
+    ignore_errors: yes
+
+  - name: Install git
+    become: yes
+    apt:
+     name: git
+     state: present
+     update_cache: yes
+
+  - name: Check if repo directory exists and delete
+    file:
+     state: absent
+     path: /home/Ghost
+
+  - name: clone repo from github
+    git:
+     repo: 'https://github.com/LennertVR1/Ghost.git'
+     dest: /home/Ghost
+
+  - name: change to repo directory
+    set_fact:
+      commandDirectory: "/home/Ghost"
+
+  - name: Rename origin to upstream - local
+    shell: chdir={{commandDirectory}} git remote rename origin upstream
+
+  - name: Add fork as origin - local
+    shell: chdir={{commandDirectory}}  git remote add origin git@github.com:LennertVR1/Ghost.git
+
+  - name: Change to admin directory
+    set_fact:
+      commandDirectory: "/home/Ghost/core/client"
+
+  - name: Rename origin to upstream - admin
+    shell: chdir={{commandDirectory}} git remote rename origin upstream
+
+  - name: Add fork as origin - admin
+    shell: chdir={{commandDirectory}} git remote add origin git@github.com:LennertVR1/Ghost-Admin.git
+
+  - name: Bring admin up to date
+    shell: chdir={{commandDirectory}} git checkout master && git pull upstream master
+
+  - name: Change directory to root directory
+    set_fact:
+      commandDirectory: "/home/Ghost"
+
+  - name: Setup Ghost
+    shell: chdir={{commandDirectory}} yarn setup
+
+  - name: Build Ghost
+    shell: chdir={{commandDirectory}} grunt build
+
+  - name: Start new screen
+    shell: screen -dmS GhostScreen
+
+  - name: Wipe all dead screens
+    shell: screen -wipe
+    ignore_errors: yes
+
+  - name: Change directory in screen
+    shell: screen -S GhostScreen -X stuff 'cd /home/Ghost\n'
+
+  - name: Run Ghost in screen
+    shell: screen -S GhostScreen -X stuff 'grunt dev\n'
